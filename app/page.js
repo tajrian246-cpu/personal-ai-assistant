@@ -23,15 +23,15 @@ export default function Home() {
       setSession(data.session);
     });
 
-    const {
-      data: { subscription }
-    } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session);
+    const { data } = supabase.auth.onAuthStateChange(
+      (_event, currentSession) => {
+        setSession(currentSession);
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      data.subscription.unsubscribe();
+    };
   }, []);
 
   async function signIn(e) {
@@ -43,11 +43,13 @@ export default function Home() {
         password
       });
 
-    setMsg(error?.message || '');
-
-    if (data?.session) {
-      setSession(data.session);
+    if (error) {
+      setMsg(error.message);
+      return;
     }
+
+    setMsg('');
+    setSession(data.session);
   }
 
   async function signUp(e) {
@@ -59,10 +61,13 @@ export default function Home() {
         password
       });
 
-    setMsg(
-      error?.message ||
+    if (error) {
+      setMsg(error.message);
+    } else {
+      setMsg(
         'Account created. Check your email if confirmation is enabled.'
-    );
+      );
+    }
   }
 
   if (!session) {
@@ -82,9 +87,7 @@ export default function Home() {
               type="email"
               placeholder="Email"
               value={email}
-              onChange={(e) =>
-                setEmail(e.target.value)
-              }
+              onChange={(e) => setEmail(e.target.value)}
               required
             />
 
@@ -92,9 +95,7 @@ export default function Home() {
               type="password"
               placeholder="Password"
               value={password}
-              onChange={(e) =>
-                setPassword(e.target.value)
-              }
+              onChange={(e) => setPassword(e.target.value)}
               required
             />
 
@@ -175,9 +176,7 @@ export default function Home() {
         )}
 
         {active === 'approval' && (
-          <Approval
-            user={session.user}
-          />
+          <Approval user={session.user} />
         )}
 
       </section>
@@ -187,125 +186,100 @@ export default function Home() {
 }
 
 
-/* =====================================================
+/* =========================
    STUDY
-===================================================== */
+========================= */
 
 function Study({ user }) {
-
   const [tasks, setTasks] = useState([]);
   const [exams, setExams] = useState([]);
 
-  // Task
-  const [title, setTitle] = useState('');
-  const [due, setDue] = useState('');
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskDue, setTaskDue] = useState('');
 
-  // Exam
-  const [subject, setSubject] = useState('');
+  const [examSubject, setExamSubject] = useState('');
   const [examDate, setExamDate] = useState('');
 
-  const [loading, setLoading] = useState(false);
+  const [savingTask, setSavingTask] = useState(false);
+  const [savingExam, setSavingExam] = useState(false);
 
+  async function loadTasks() {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('due_date', {
+        ascending: true,
+        nullsFirst: false
+      });
 
-  /* =========================
-     LOAD DATA
-  ========================= */
-
-  async function load() {
-
-    const [taskResult, examResult] =
-      await Promise.all([
-
-        supabase
-          .from('tasks')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('due_date', {
-            ascending: true,
-            nullsFirst: false
-          }),
-
-        supabase
-          .from('exams')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('exam_date', {
-            ascending: true
-          })
-
-      ]);
-
-    if (!taskResult.error) {
-      setTasks(taskResult.data || []);
+    if (!error) {
+      setTasks(data || []);
     }
-
-    if (!examResult.error) {
-      setExams(examResult.data || []);
-    }
-
   }
 
+  async function loadExams() {
+    const { data, error } = await supabase
+      .from('exams')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('exam_date', {
+        ascending: true
+      });
+
+    if (!error) {
+      setExams(data || []);
+    }
+  }
+
+  async function loadAll() {
+    await Promise.all([
+      loadTasks(),
+      loadExams()
+    ]);
+  }
 
   useEffect(() => {
     if (user?.id) {
-      load();
+      loadAll();
     }
   }, [user?.id]);
 
-
-  /* =========================
-     ADD TASK
-  ========================= */
-
   async function addTask(e) {
-
     e.preventDefault();
 
-    if (!title.trim()) {
+    if (!taskTitle.trim()) {
       alert('Please enter a task title.');
       return;
     }
 
-    setLoading(true);
+    setSavingTask(true);
 
-    const { error } =
-      await supabase
-        .from('tasks')
-        .insert({
-          user_id: user.id,
-          title: title.trim(),
-          due_date: due || null
-        });
+    const { error } = await supabase
+      .from('tasks')
+      .insert({
+        user_id: user.id,
+        title: taskTitle.trim(),
+        due_date: taskDue || null
+      });
 
-    setLoading(false);
+    setSavingTask(false);
 
     if (error) {
-
-      alert(
-        'Could not add task:\n' +
-        error.message
-      );
-
+      alert(error.message);
       return;
     }
 
-    setTitle('');
-    setDue('');
+    setTaskTitle('');
+    setTaskDue('');
 
-    await load();
-
+    await loadTasks();
   }
 
-
-  /* =========================
-     ADD EXAM
-  ========================= */
-
   async function addExam(e) {
-
     e.preventDefault();
 
-    if (!subject.trim()) {
+    if (!examSubject.trim()) {
       alert('Please enter the subject name.');
       return;
     }
@@ -315,161 +289,119 @@ function Study({ user }) {
       return;
     }
 
-    setLoading(true);
+    setSavingExam(true);
 
-    const { error } =
-      await supabase
-        .from('exams')
-        .insert({
-          user_id: user.id,
-          subject: subject.trim(),
-          exam_date: examDate
-        });
+    const { error } = await supabase
+      .from('exams')
+      .insert({
+        user_id: user.id,
+        subject: examSubject.trim(),
+        exam_date: examDate
+      });
 
-    setLoading(false);
+    setSavingExam(false);
 
     if (error) {
-
-      alert(
-        'Could not add exam:\n' +
-        error.message
-      );
-
+      alert(error.message);
       return;
     }
 
-    setSubject('');
+    setExamSubject('');
     setExamDate('');
 
-    await load();
-
+    await loadExams();
   }
-
-
-  /* =========================
-     DELETE TASK
-  ========================= */
 
   async function deleteTask(id) {
+    const confirmed = window.confirm(
+      'Are you sure you want to delete this task?'
+    );
 
-    const ok =
-      confirm(
-        'Delete this task?'
-      );
-
-    if (!ok) return;
-
-    const { error } =
-      await supabase
-        .from('tasks')
-        .delete()
-        .eq('id', id)
-        .eq('user_id', user.id);
-
-    if (error) {
-
-      alert(error.message);
+    if (!confirmed) {
       return;
-
     }
 
-    await load();
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id);
 
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await loadTasks();
   }
-
-
-  /* =========================
-     DELETE EXAM
-  ========================= */
 
   async function deleteExam(id) {
+    const confirmed = window.confirm(
+      'Are you sure you want to delete this exam?'
+    );
 
-    const ok =
-      confirm(
-        'Delete this exam?'
-      );
-
-    if (!ok) return;
-
-    const { error } =
-      await supabase
-        .from('exams')
-        .delete()
-        .eq('id', id)
-        .eq('user_id', user.id);
-
-    if (error) {
-
-      alert(error.message);
+    if (!confirmed) {
       return;
-
     }
 
-    await load();
+    const { error } = await supabase
+      .from('exams')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id);
 
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await loadExams();
   }
-
 
   return (
     <>
-
       <h1>Study</h1>
 
       <p className="muted">
-        Your academic workspace is separate
-        from both business pages.
+        Your academic workspace is separate from both business pages.
       </p>
-
 
       <div className="grid">
 
-
-        {/* =================================
-            QUICK TASK
-        ================================= */}
-
         <div className="card">
-
           <h2>Quick Task</h2>
 
           <form onSubmit={addTask}>
 
             <input
+              type="text"
               placeholder="Task title"
-              value={title}
+              value={taskTitle}
               onChange={(e) =>
-                setTitle(e.target.value)
+                setTaskTitle(e.target.value)
               }
             />
 
             <input
               type="datetime-local"
-              value={due}
+              value={taskDue}
               onChange={(e) =>
-                setDue(e.target.value)
+                setTaskDue(e.target.value)
               }
             />
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={savingTask}
             >
-              {loading
-                ? 'Saving...'
-                : 'Add task'}
+              {savingTask ? 'Saving...' : 'Add task'}
             </button>
 
           </form>
-
         </div>
 
 
-        {/* =================================
-            ADD EXAM
-        ================================= */}
-
         <div className="card">
-
           <h2>Add Exam</h2>
 
           <form onSubmit={addExam}>
@@ -477,9 +409,9 @@ function Study({ user }) {
             <input
               type="text"
               placeholder="Subject name"
-              value={subject}
+              value={examSubject}
               onChange={(e) =>
-                setSubject(e.target.value)
+                setExamSubject(e.target.value)
               }
             />
 
@@ -493,35 +425,24 @@ function Study({ user }) {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={savingExam}
             >
-              {loading
-                ? 'Saving...'
-                : 'Add Exam'}
+              {savingExam ? 'Saving...' : 'Add Exam'}
             </button>
 
           </form>
-
         </div>
 
 
-        {/* =================================
-            TASKS
-        ================================= */}
-
         <div className="card">
-
           <h2>Tasks</h2>
 
           {tasks.length > 0 ? (
-
             tasks.map((task) => (
-
               <div
                 className="row"
                 key={task.id}
               >
-
                 <span>
                   {task.title}
                 </span>
@@ -538,41 +459,26 @@ function Study({ user }) {
                 >
                   Delete
                 </button>
-
               </div>
-
             ))
-
           ) : (
-
             <p className="muted">
               No tasks yet.
             </p>
-
           )}
-
         </div>
 
 
-        {/* =================================
-            UPCOMING EXAMS
-        ================================= */}
-
         <div className="card">
-
           <h2>Upcoming Exams</h2>
 
           {exams.length > 0 ? (
-
             exams.map((exam) => (
-
               <div
                 className="row"
                 key={exam.id}
               >
-
                 <div>
-
                   <strong>
                     {exam.subject}
                   </strong>
@@ -584,7 +490,6 @@ function Study({ user }) {
                       exam.exam_date
                     ).toLocaleString()}
                   </span>
-
                 </div>
 
                 <button
@@ -595,67 +500,52 @@ function Study({ user }) {
                 >
                   Delete
                 </button>
-
               </div>
-
             ))
-
           ) : (
-
             <p className="muted">
               No exams yet.
             </p>
-
           )}
-
         </div>
 
       </div>
-
     </>
   );
 }
 
 
-/* =====================================================
-   BUSINESS PAGES
-===================================================== */
+/* =========================
+   BUSINESS
+========================= */
 
 function Business({ page, user }) {
-
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [posts, setPosts] = useState([]);
 
   async function load() {
-
-    const { data, error } =
-      await supabase
-        .from('business_posts')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('page_name', page)
-        .order('created_at', {
-          ascending: false
-        });
+    const { data, error } = await supabase
+      .from('business_posts')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('page_name', page)
+      .order('created_at', {
+        ascending: false
+      });
 
     if (!error) {
       setPosts(data || []);
     }
-
   }
 
   useEffect(() => {
-
     if (user?.id) {
       load();
     }
-
   }, [page, user?.id]);
 
-
   async function save(e) {
-
     e.preventDefault();
 
     if (!content.trim()) {
@@ -663,24 +553,18 @@ function Business({ page, user }) {
       return;
     }
 
-    const { error } =
-      await supabase
-        .from('business_posts')
-        .insert({
-          user_id: user.id,
-          page_name: page,
-          title: title.trim(),
-          content: content.trim(),
-          status: 'draft'
-        });
+    const { error } = await supabase
+      .from('business_posts')
+      .insert({
+        user_id: user.id,
+        page_name: page,
+        title: title.trim(),
+        content: content.trim(),
+        status: 'draft'
+      });
 
     if (error) {
-
-      alert(
-        'Could not save draft:\n' +
-        error.message
-      );
-
+      alert(error.message);
       return;
     }
 
@@ -688,19 +572,15 @@ function Business({ page, user }) {
     setContent('');
 
     await load();
-
   }
-
 
   return (
     <>
-
       <h1>{page}</h1>
 
       <p className="muted">
         AI drafts stay here until you approve them.
       </p>
-
 
       <div className="card">
 
@@ -709,6 +589,7 @@ function Business({ page, user }) {
         <form onSubmit={save}>
 
           <input
+            type="text"
             placeholder="Post title"
             value={title}
             onChange={(e) =>
@@ -738,14 +619,11 @@ function Business({ page, user }) {
         <h2>Drafts</h2>
 
         {posts.length > 0 ? (
-
           posts.map((post) => (
-
             <div
               className="post"
               key={post.id}
             >
-
               <b>
                 {post.title || 'Untitled'}
               </b>
@@ -757,105 +635,77 @@ function Business({ page, user }) {
               <span className="badge">
                 {post.status}
               </span>
-
             </div>
-
           ))
-
         ) : (
-
           <p className="muted">
             No drafts yet.
           </p>
-
         )}
 
       </div>
-
     </>
   );
 }
 
 
-/* =====================================================
+/* =========================
    APPROVAL
-===================================================== */
+========================= */
 
 function Approval({ user }) {
-
   const [posts, setPosts] = useState([]);
 
   async function load() {
-
-    const { data, error } =
-      await supabase
-        .from('business_posts')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'draft')
-        .order('created_at', {
-          ascending: false
-        });
+    const { data, error } = await supabase
+      .from('business_posts')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('status', 'draft')
+      .order('created_at', {
+        ascending: false
+      });
 
     if (!error) {
       setPosts(data || []);
     }
-
   }
 
-
   useEffect(() => {
-
     if (user?.id) {
       load();
     }
-
   }, [user?.id]);
 
-
-  async function change(id, status) {
-
-    const { error } =
-      await supabase
-        .from('business_posts')
-        .update({
-          status: status
-        })
-        .eq('id', id)
-        .eq('user_id', user.id);
+  async function changeStatus(id, status) {
+    const { error } = await supabase
+      .from('business_posts')
+      .update({
+        status: status
+      })
+      .eq('id', id)
+      .eq('user_id', user.id);
 
     if (error) {
-
-      alert(
-        'Could not update post:\n' +
-        error.message
-      );
-
+      alert(error.message);
       return;
     }
 
     await load();
-
   }
-
 
   return (
     <>
-
       <h1>Approval</h1>
 
       <p className="muted">
-        Nothing is published automatically.
-        Your approval comes first.
+        Nothing is published automatically. Your approval comes first.
       </p>
-
 
       <div className="card">
 
         {posts.length > 0 ? (
-
           posts.map((post) => (
-
             <div
               className="post"
               key={post.id}
@@ -883,7 +733,7 @@ function Approval({ user }) {
 
               <button
                 onClick={() =>
-                  change(
+                  changeStatus(
                     post.id,
                     'approved'
                   )
@@ -895,7 +745,7 @@ function Approval({ user }) {
               <button
                 className="danger"
                 onClick={() =>
-                  change(
+                  changeStatus(
                     post.id,
                     'rejected'
                   )
@@ -905,23 +755,14 @@ function Approval({ user }) {
               </button>
 
             </div>
-
           ))
-
         ) : (
-
           <p className="muted">
             No pending drafts.
           </p>
-
         )}
 
       </div>
-
     </>
   );
 }
-    </>
-  );
-}
-```
