@@ -1,8 +1,7 @@
-```javascript
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabase } from '../supabase';
+import { supabase } from '../lib/supabase';
 
 const nav = [
   ['Study', 'study'],
@@ -26,9 +25,11 @@ export default function Home() {
 
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
+    } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session);
+      }
+    );
 
     return () => subscription.unsubscribe();
   }, []);
@@ -52,10 +53,11 @@ export default function Home() {
   async function signUp(e) {
     e.preventDefault();
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password
-    });
+    const { error } =
+      await supabase.auth.signUp({
+        email,
+        password
+      });
 
     setMsg(
       error?.message ||
@@ -67,6 +69,7 @@ export default function Home() {
     return (
       <main className="auth">
         <div className="card authcard">
+
           <h1>Personal AI Assistant</h1>
 
           <p className="muted">
@@ -74,11 +77,14 @@ export default function Home() {
           </p>
 
           <form onSubmit={signIn}>
+
             <input
               type="email"
               placeholder="Email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) =>
+                setEmail(e.target.value)
+              }
               required
             />
 
@@ -86,13 +92,16 @@ export default function Home() {
               type="password"
               placeholder="Password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) =>
+                setPassword(e.target.value)
+              }
               required
             />
 
             <button type="submit">
               Sign in
             </button>
+
           </form>
 
           <button
@@ -107,6 +116,7 @@ export default function Home() {
               {msg}
             </p>
           )}
+
         </div>
       </main>
     );
@@ -114,6 +124,7 @@ export default function Home() {
 
   return (
     <main className="shell">
+
       <aside className="sidebar">
 
         <div className="brand">
@@ -164,103 +175,244 @@ export default function Home() {
         )}
 
         {active === 'approval' && (
-          <Approval user={session.user} />
+          <Approval
+            user={session.user}
+          />
         )}
 
       </section>
+
     </main>
   );
 }
 
 
-/* =========================
+/* =====================================================
    STUDY
-========================= */
+===================================================== */
 
 function Study({ user }) {
+
   const [tasks, setTasks] = useState([]);
   const [exams, setExams] = useState([]);
 
+  // Task
   const [title, setTitle] = useState('');
   const [due, setDue] = useState('');
 
+  // Exam
   const [subject, setSubject] = useState('');
   const [examDate, setExamDate] = useState('');
 
+  const [loading, setLoading] = useState(false);
+
+
+  /* =========================
+     LOAD DATA
+  ========================= */
+
   async function load() {
+
     const [taskResult, examResult] =
       await Promise.all([
+
         supabase
           .from('tasks')
           .select('*')
-          .order('due_date'),
+          .eq('user_id', user.id)
+          .order('due_date', {
+            ascending: true,
+            nullsFirst: false
+          }),
 
         supabase
           .from('exams')
           .select('*')
-          .order('exam_date')
+          .eq('user_id', user.id)
+          .order('exam_date', {
+            ascending: true
+          })
+
       ]);
 
-    setTasks(taskResult.data || []);
-    setExams(examResult.data || []);
+    if (!taskResult.error) {
+      setTasks(taskResult.data || []);
+    }
+
+    if (!examResult.error) {
+      setExams(examResult.data || []);
+    }
+
   }
 
+
   useEffect(() => {
-    load();
-  }, []);
+    if (user?.id) {
+      load();
+    }
+  }, [user?.id]);
+
+
+  /* =========================
+     ADD TASK
+  ========================= */
 
   async function addTask(e) {
+
     e.preventDefault();
 
     if (!title.trim()) {
+      alert('Please enter a task title.');
       return;
     }
+
+    setLoading(true);
 
     const { error } =
       await supabase
         .from('tasks')
         .insert({
           user_id: user.id,
-          title: title,
+          title: title.trim(),
           due_date: due || null
         });
 
-    if (!error) {
-      setTitle('');
-      setDue('');
-      load();
-    } else {
-      alert(error.message);
-    }
-  }
+    setLoading(false);
 
-  async function addExam(e) {
-    e.preventDefault();
+    if (error) {
 
-    if (!subject.trim() || !examDate) {
+      alert(
+        'Could not add task:\n' +
+        error.message
+      );
+
       return;
     }
+
+    setTitle('');
+    setDue('');
+
+    await load();
+
+  }
+
+
+  /* =========================
+     ADD EXAM
+  ========================= */
+
+  async function addExam(e) {
+
+    e.preventDefault();
+
+    if (!subject.trim()) {
+      alert('Please enter the subject name.');
+      return;
+    }
+
+    if (!examDate) {
+      alert('Please select the exam date and time.');
+      return;
+    }
+
+    setLoading(true);
 
     const { error } =
       await supabase
         .from('exams')
         .insert({
           user_id: user.id,
-          subject: subject,
+          subject: subject.trim(),
           exam_date: examDate
         });
 
-    if (!error) {
-      setSubject('');
-      setExamDate('');
-      load();
-    } else {
-      alert(error.message);
+    setLoading(false);
+
+    if (error) {
+
+      alert(
+        'Could not add exam:\n' +
+        error.message
+      );
+
+      return;
     }
+
+    setSubject('');
+    setExamDate('');
+
+    await load();
+
   }
+
+
+  /* =========================
+     DELETE TASK
+  ========================= */
+
+  async function deleteTask(id) {
+
+    const ok =
+      confirm(
+        'Delete this task?'
+      );
+
+    if (!ok) return;
+
+    const { error } =
+      await supabase
+        .from('tasks')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+    if (error) {
+
+      alert(error.message);
+      return;
+
+    }
+
+    await load();
+
+  }
+
+
+  /* =========================
+     DELETE EXAM
+  ========================= */
+
+  async function deleteExam(id) {
+
+    const ok =
+      confirm(
+        'Delete this exam?'
+      );
+
+    if (!ok) return;
+
+    const { error } =
+      await supabase
+        .from('exams')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+    if (error) {
+
+      alert(error.message);
+      return;
+
+    }
+
+    await load();
+
+  }
+
 
   return (
     <>
+
       <h1>Study</h1>
 
       <p className="muted">
@@ -268,11 +420,16 @@ function Study({ user }) {
         from both business pages.
       </p>
 
+
       <div className="grid">
 
-        {/* QUICK TASK */}
+
+        {/* =================================
+            QUICK TASK
+        ================================= */}
 
         <div className="card">
+
           <h2>Quick Task</h2>
 
           <form onSubmit={addTask}>
@@ -293,23 +450,33 @@ function Study({ user }) {
               }
             />
 
-            <button type="submit">
-              Add task
+            <button
+              type="submit"
+              disabled={loading}
+            >
+              {loading
+                ? 'Saving...'
+                : 'Add task'}
             </button>
 
           </form>
+
         </div>
 
 
-        {/* ADD EXAM */}
+        {/* =================================
+            ADD EXAM
+        ================================= */}
 
         <div className="card">
+
           <h2>Add Exam</h2>
 
           <form onSubmit={addExam}>
 
             <input
-              placeholder="Subject"
+              type="text"
+              placeholder="Subject name"
               value={subject}
               onChange={(e) =>
                 setSubject(e.target.value)
@@ -324,25 +491,37 @@ function Study({ user }) {
               }
             />
 
-            <button type="submit">
-              Add Exam
+            <button
+              type="submit"
+              disabled={loading}
+            >
+              {loading
+                ? 'Saving...'
+                : 'Add Exam'}
             </button>
 
           </form>
+
         </div>
 
 
-        {/* TASKS */}
+        {/* =================================
+            TASKS
+        ================================= */}
 
         <div className="card">
+
           <h2>Tasks</h2>
 
           {tasks.length > 0 ? (
+
             tasks.map((task) => (
+
               <div
                 className="row"
                 key={task.id}
               >
+
                 <span>
                   {task.title}
                 </span>
@@ -350,65 +529,111 @@ function Study({ user }) {
                 <span>
                   {task.status || 'pending'}
                 </span>
+
+                <button
+                  className="danger"
+                  onClick={() =>
+                    deleteTask(task.id)
+                  }
+                >
+                  Delete
+                </button>
+
               </div>
+
             ))
+
           ) : (
+
             <p className="muted">
               No tasks yet.
             </p>
+
           )}
+
         </div>
 
 
-        {/* EXAMS */}
+        {/* =================================
+            UPCOMING EXAMS
+        ================================= */}
 
         <div className="card">
+
           <h2>Upcoming Exams</h2>
 
           {exams.length > 0 ? (
+
             exams.map((exam) => (
+
               <div
                 className="row"
                 key={exam.id}
               >
-                <span>
-                  {exam.subject}
-                </span>
 
-                <span>
-                  {new Date(
-                    exam.exam_date
-                  ).toLocaleString()}
-                </span>
+                <div>
+
+                  <strong>
+                    {exam.subject}
+                  </strong>
+
+                  <br />
+
+                  <span className="muted">
+                    {new Date(
+                      exam.exam_date
+                    ).toLocaleString()}
+                  </span>
+
+                </div>
+
+                <button
+                  className="danger"
+                  onClick={() =>
+                    deleteExam(exam.id)
+                  }
+                >
+                  Delete
+                </button>
+
               </div>
+
             ))
+
           ) : (
+
             <p className="muted">
               No exams yet.
             </p>
+
           )}
+
         </div>
 
       </div>
+
     </>
   );
 }
 
 
-/* =========================
+/* =====================================================
    BUSINESS PAGES
-========================= */
+===================================================== */
 
 function Business({ page, user }) {
+
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [posts, setPosts] = useState([]);
 
   async function load() {
+
     const { data, error } =
       await supabase
         .from('business_posts')
         .select('*')
+        .eq('user_id', user.id)
         .eq('page_name', page)
         .order('created_at', {
           ascending: false
@@ -417,16 +642,24 @@ function Business({ page, user }) {
     if (!error) {
       setPosts(data || []);
     }
+
   }
 
   useEffect(() => {
-    load();
-  }, [page]);
+
+    if (user?.id) {
+      load();
+    }
+
+  }, [page, user?.id]);
+
 
   async function save(e) {
+
     e.preventDefault();
 
     if (!content.trim()) {
+      alert('Please enter content.');
       return;
     }
 
@@ -436,29 +669,41 @@ function Business({ page, user }) {
         .insert({
           user_id: user.id,
           page_name: page,
-          title: title,
-          content: content,
+          title: title.trim(),
+          content: content.trim(),
           status: 'draft'
         });
 
-    if (!error) {
-      setTitle('');
-      setContent('');
-      load();
-    } else {
-      alert(error.message);
+    if (error) {
+
+      alert(
+        'Could not save draft:\n' +
+        error.message
+      );
+
+      return;
     }
+
+    setTitle('');
+    setContent('');
+
+    await load();
+
   }
+
 
   return (
     <>
+
       <h1>{page}</h1>
 
       <p className="muted">
         AI drafts stay here until you approve them.
       </p>
 
+
       <div className="card">
+
         <h2>Create Draft</h2>
 
         <form onSubmit={save}>
@@ -484,18 +729,23 @@ function Business({ page, user }) {
           </button>
 
         </form>
+
       </div>
 
 
       <div className="card">
+
         <h2>Drafts</h2>
 
         {posts.length > 0 ? (
+
           posts.map((post) => (
+
             <div
               className="post"
               key={post.id}
             >
+
               <b>
                 {post.title || 'Untitled'}
               </b>
@@ -507,31 +757,41 @@ function Business({ page, user }) {
               <span className="badge">
                 {post.status}
               </span>
+
             </div>
+
           ))
+
         ) : (
+
           <p className="muted">
             No drafts yet.
           </p>
+
         )}
+
       </div>
+
     </>
   );
 }
 
 
-/* =========================
+/* =====================================================
    APPROVAL
-========================= */
+===================================================== */
 
 function Approval({ user }) {
+
   const [posts, setPosts] = useState([]);
 
   async function load() {
+
     const { data, error } =
       await supabase
         .from('business_posts')
         .select('*')
+        .eq('user_id', user.id)
         .eq('status', 'draft')
         .order('created_at', {
           ascending: false
@@ -540,28 +800,48 @@ function Approval({ user }) {
     if (!error) {
       setPosts(data || []);
     }
+
   }
 
+
   useEffect(() => {
-    load();
-  }, []);
+
+    if (user?.id) {
+      load();
+    }
+
+  }, [user?.id]);
+
 
   async function change(id, status) {
+
     const { error } =
       await supabase
         .from('business_posts')
-        .update({ status: status })
-        .eq('id', id);
+        .update({
+          status: status
+        })
+        .eq('id', id)
+        .eq('user_id', user.id);
 
-    if (!error) {
-      load();
-    } else {
-      alert(error.message);
+    if (error) {
+
+      alert(
+        'Could not update post:\n' +
+        error.message
+      );
+
+      return;
     }
+
+    await load();
+
   }
+
 
   return (
     <>
+
       <h1>Approval</h1>
 
       <p className="muted">
@@ -569,16 +849,20 @@ function Approval({ user }) {
         Your approval comes first.
       </p>
 
+
       <div className="card">
 
         {posts.length > 0 ? (
+
           posts.map((post) => (
+
             <div
               className="post"
               key={post.id}
             >
 
               <div className="row">
+
                 <b>
                   {post.page_name}
                 </b>
@@ -586,6 +870,7 @@ function Approval({ user }) {
                 <span className="badge">
                   Draft
                 </span>
+
               </div>
 
               <h3>
@@ -620,14 +905,22 @@ function Approval({ user }) {
               </button>
 
             </div>
+
           ))
+
         ) : (
+
           <p className="muted">
             No pending drafts.
           </p>
+
         )}
 
       </div>
+
+    </>
+  );
+}
     </>
   );
 }
